@@ -81,6 +81,7 @@ export interface StructuredDocument {
 }
 
 export type ProcessingStatus =
+  | 'uploading'
   | 'queued'
   | 'reading_ocr'
   | 'translating'
@@ -105,6 +106,17 @@ export interface BatchItem {
   statusMessage?: string;
   error?: string;
   
+  // Live Upload & Transfer Tracking
+  uploadProgress?: number; // 0 - 100
+  bytesUploaded?: number; // bytes loaded so far
+  uploadSpeed?: string; // e.g. "2.4 MB/s"
+  uploadStartTime?: number;
+  uploadCompletedAt?: number;
+
+  // Live Processing Timing & Step Tracking
+  processingStartTime?: number;
+  processingStep?: string;
+
   // Conversion Output
   structuredData?: StructuredDocument;
   docxBlob?: Blob;

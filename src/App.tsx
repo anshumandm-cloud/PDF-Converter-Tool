@@ -21,6 +21,7 @@ import { SampleDoc } from './services/sampleDocuments';
 import { Navbar } from './components/Navbar';
 import { UploadZone } from './components/UploadZone';
 import { BatchQueue } from './components/BatchQueue';
+import { LiveUploadMonitor } from './components/LiveUploadMonitor';
 import { DocumentStudio } from './components/DocumentStudio';
 import { DriveBrowserModal } from './components/DriveBrowserModal';
 import { CloudSyncSettings } from './components/CloudSyncSettings';
@@ -120,52 +121,130 @@ export default function App() {
     }
   };
 
-  // Convert File to Base64
-  const fileToBase64 = (file: File): Promise<string> => {
+  // Read File to Base64 with live byte-level progress reporting
+  const readFileWithLiveProgress = (file: File, itemId: string): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = reject;
+      const startTime = Date.now();
+
+      reader.onprogress = (e) => {
+        if (e.lengthComputable && e.total > 0) {
+          const percent = Math.min(95, Math.round((e.loaded / e.total) * 100));
+          const elapsedSec = Math.max(0.1, (Date.now() - startTime) / 1000);
+          const bytesSec = e.loaded / elapsedSec;
+          const speedStr = `${(bytesSec / (1024 * 1024)).toFixed(1)} MB/s`;
+
+          setBatchItems((prev) =>
+            prev.map((i) =>
+              i.id === itemId
+                ? {
+                    ...i,
+                    uploadProgress: percent,
+                    bytesUploaded: e.loaded,
+                    uploadSpeed: speedStr,
+                    statusMessage: `Uploading: ${percent}% • ${speedStr}`,
+                  }
+                : i
+            )
+          );
+        }
+      };
+
+      reader.onload = () => {
+        const result = reader.result as string;
+        setBatchItems((prev) =>
+          prev.map((i) =>
+            i.id === itemId
+              ? {
+                  ...i,
+                  uploadProgress: 100,
+                  bytesUploaded: file.size,
+                  uploadCompletedAt: Date.now(),
+                  base64Data: result,
+                  status: 'queued',
+                  statusMessage: 'Upload verified • Ready to process',
+                }
+              : i
+          )
+        );
+        resolve(result);
+      };
+
+      reader.onerror = (err) => {
+        setBatchItems((prev) =>
+          prev.map((i) =>
+            i.id === itemId
+              ? {
+                  ...i,
+                  status: 'error',
+                  error: 'Failed to read file',
+                  statusMessage: 'Upload failed',
+                }
+              : i
+          )
+        );
+        reject(err);
+      };
+
       reader.readAsDataURL(file);
     });
   };
 
-  // Add uploaded local files to queue
+  // Add uploaded local files to queue with live upload status
   const handleFilesSelected = async (
     files: File[],
     format: TargetFormat,
     autoAction?: 'convert' | 'translate'
   ) => {
-    const newItems: BatchItem[] = [];
+    // 1. Instantly register items in the live upload monitor
+    const initialItems: BatchItem[] = files.map((file, idx) => ({
+      id: `batch-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 6)}`,
+      name: file.name,
+      size: file.size,
+      file,
+      targetFormat: format,
+      status: 'uploading',
+      progress: 0,
+      uploadProgress: 8,
+      bytesUploaded: Math.round(file.size * 0.08),
+      uploadStartTime: Date.now(),
+      statusMessage: 'Uploading & verifying document structure...',
+      driveStatus: 'unsynced',
+    }));
 
-    for (const file of files) {
-      const base64 = await fileToBase64(file);
-      newItems.push({
-        id: `batch-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
-        name: file.name,
-        size: file.size,
-        file,
-        base64Data: base64,
-        targetFormat: format,
-        status: 'queued',
-        progress: 0,
-        driveStatus: 'unsynced',
-      });
+    setBatchItems((prev) => [...prev, ...initialItems]);
+
+    // 2. Read each file with live progress events
+    const readyItems: BatchItem[] = [];
+    for (const item of initialItems) {
+      if (!item.file) continue;
+      try {
+        const base64 = await readFileWithLiveProgress(item.file, item.id);
+        readyItems.push({
+          ...item,
+          base64Data: base64,
+          status: 'queued',
+          uploadProgress: 100,
+          bytesUploaded: item.size,
+          uploadCompletedAt: Date.now(),
+          statusMessage: 'Ready to process',
+        });
+      } catch (err) {
+        console.error('File read error:', err);
+      }
     }
 
-    setBatchItems((prev) => [...prev, ...newItems]);
-
-    // If autoAction was triggered by clicking Convert or Translate before selecting files:
+    // 3. If autoAction was triggered by clicking Convert or Translate before selecting files:
     if (autoAction === 'convert') {
       setTimeout(() => {
-        for (const item of newItems) {
+        for (const item of readyItems) {
           processItem(item.id);
         }
       }, 100);
     } else if (autoAction === 'translate') {
       setTimeout(() => {
         const lang = options.targetLanguage !== 'none' ? options.targetLanguage : 'Spanish';
-        for (const item of newItems) {
+        for (const item of readyItems) {
           processItem(item.id, { targetLanguage: lang, sourceLanguage: options.sourceLanguage });
         }
       }, 100);
@@ -237,63 +316,94 @@ export default function App() {
 
         let structuredData = item.structuredData;
 
-        // If the document is already converted and the user clicked "Translate", translate directly
-        if (structuredData && isTranslating) {
-          updateItem({
-            status: 'translating',
-            progress: 35,
-            statusMessage: `Translating document into ${targetLang}...`,
-            targetLanguage: targetLang,
-          });
+        // Stage progress simulation while network call is active
+        let progressTimer: NodeJS.Timeout | null = null;
+        if (!structuredData) {
+          progressTimer = setInterval(() => {
+            setBatchItems((prev) =>
+              prev.map((i) => {
+                if (i.id !== itemId || i.status === 'completed' || i.status === 'error') return i;
+                if (i.progress < 75) {
+                  const nextProg = i.progress + 6;
+                  let stepMsg = i.statusMessage;
+                  if (nextProg >= 35 && nextProg < 50) {
+                    stepMsg = isTranslating
+                      ? `Translating text blocks into ${targetLang}...`
+                      : 'Gemini Vision: Extracting fonts & typography...';
+                  } else if (nextProg >= 50 && nextProg < 65) {
+                    stepMsg = 'Scanning table borders, numerical cells & formulas...';
+                  } else if (nextProg >= 65) {
+                    stepMsg = 'Constructing document layout models...';
+                  }
+                  return { ...i, progress: nextProg, statusMessage: stepMsg };
+                }
+                return i;
+              })
+            );
+          }, 700);
+        }
 
-          const transRes = await fetch('/api/document/translate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              document: structuredData,
+        try {
+          // If the document is already converted and the user clicked "Translate", translate directly
+          if (structuredData && isTranslating) {
+            updateItem({
+              status: 'translating',
+              progress: 35,
+              statusMessage: `Translating document into ${targetLang}...`,
               targetLanguage: targetLang,
-              sourceLanguage: sourceLang !== 'auto' ? sourceLang : undefined,
-            }),
-          });
+            });
 
-          if (!transRes.ok) {
-            const errData = await transRes.json().catch(() => ({}));
-            throw new Error(errData.error || `Translation Error (${transRes.status})`);
-          }
+            const transRes = await fetch('/api/document/translate', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                document: structuredData,
+                targetLanguage: targetLang,
+                sourceLanguage: sourceLang !== 'auto' ? sourceLang : undefined,
+              }),
+            });
 
-          const transData = await transRes.json();
-          if (transData.document) {
-            structuredData = transData.document;
-          }
-        } else if (!structuredData && item.base64Data) {
-          updateItem({
-            status: isTranslating ? 'translating' : 'reading_ocr',
-            progress: 25,
-            statusMessage: isTranslating
-              ? `Scanning and translating into ${targetLang}...`
-              : 'Scanning text & typography with Gemini Vision OCR...',
-            targetLanguage: targetLang,
-          });
+            if (!transRes.ok) {
+              const errData = await transRes.json().catch(() => ({}));
+              throw new Error(errData.error || `Translation Error (${transRes.status})`);
+            }
 
-          const res = await fetch('/api/ocr/convert', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              fileBase64: item.base64Data,
-              fileName: item.name,
-              targetFormat: item.targetFormat,
+            const transData = await transRes.json();
+            if (transData.document) {
+              structuredData = transData.document;
+            }
+          } else if (!structuredData && item.base64Data) {
+            updateItem({
+              status: isTranslating ? 'translating' : 'reading_ocr',
+              progress: 25,
+              statusMessage: isTranslating
+                ? `Scanning and translating into ${targetLang}...`
+                : 'Scanning text & typography with Gemini Vision OCR...',
               targetLanguage: targetLang,
-              sourceLanguage: sourceLang !== 'auto' ? sourceLang : undefined,
-            }),
-          });
+            });
 
-          if (!res.ok) {
-            const errData = await res.json().catch(() => ({}));
-            throw new Error(errData.error || `Server OCR Error (${res.status})`);
+            const res = await fetch('/api/ocr/convert', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                fileBase64: item.base64Data,
+                fileName: item.name,
+                targetFormat: item.targetFormat,
+                targetLanguage: targetLang,
+                sourceLanguage: sourceLang !== 'auto' ? sourceLang : undefined,
+              }),
+            });
+
+            if (!res.ok) {
+              const errData = await res.json().catch(() => ({}));
+              throw new Error(errData.error || `Server OCR Error (${res.status})`);
+            }
+
+            const data = await res.json();
+            structuredData = data.document;
           }
-
-          const data = await res.json();
-          structuredData = data.document;
+        } finally {
+          if (progressTimer) clearInterval(progressTimer);
         }
 
         if (!structuredData) {
@@ -302,14 +412,17 @@ export default function App() {
 
         updateItem({
           status: 'reconstructing_layout',
-          progress: 60,
-          statusMessage: 'Reconstructing headings, tables, and styles...',
+          progress: 80,
+          statusMessage: isTranslating
+            ? `Reconstructing layout with ${targetLang} translations...`
+            : 'Reconstructing headings, tables, and styles...',
           structuredData,
+          targetLanguage: targetLang,
         });
 
         updateItem({
           status: 'generating_files',
-          progress: 80,
+          progress: 90,
           statusMessage: 'Compiling editable Word and Excel documents...',
         });
 
@@ -749,6 +862,12 @@ export default function App() {
       <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
         {activeTab === 'converter' && (
           <div className="space-y-6">
+            {/* Live Upload & Processing Status Monitor */}
+            <LiveUploadMonitor
+              items={batchItems}
+              onCancelItem={handleRemoveItem}
+            />
+
             <UploadZone
               onFilesSelected={handleFilesSelected}
               onSampleSelected={handleSampleSelected}

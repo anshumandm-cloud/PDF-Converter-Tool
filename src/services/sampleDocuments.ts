@@ -376,4 +376,82 @@ export const SAMPLE_DOCUMENTS: SampleDoc[] = [
       ],
     },
   },
+  {
+    id: 'sample-receipt-04',
+    name: 'Faded_Thermal_Receipt_Warning_Demo.pdf',
+    category: 'Invoice / Financial',
+    size: 142300,
+    pageCount: 1,
+    tags: ['Low OCR Score (68%)', 'Warning Indicator', 'Needs Review'],
+    description: 'Faded thermal receipt with folded crease and low OCR confidence (68%). Triggers amber warning banner to review in Studio.',
+    mockData: {
+      documentTitle: 'QUICKSERVE HARDWARE & SUPPLIES - STORE #402',
+      pageCount: 1,
+      confidenceScore: 0.68,
+      detectedLanguage: 'English',
+      ocrSummary: 'OCR completed with low confidence (68%) due to thermal paper fading and creased text. Manual review recommended in Studio.',
+      pages: [
+        {
+          pageNumber: 1,
+          elements: [
+            {
+              type: 'heading',
+              level: 1,
+              text: 'QUICKSERVE HARDWARE & SUPPLIES',
+              alignment: 'center',
+              isBold: true,
+            },
+            {
+              type: 'paragraph',
+              runs: [
+                { text: 'Store #402 • 1084 Industrial Blvd, Austin, TX • (512) 555-0199', italic: true },
+              ],
+              alignment: 'center',
+            },
+            {
+              type: 'key-value',
+              label: 'Transaction Ref',
+              value: 'TXN-90214-CREASED',
+            },
+            {
+              type: 'key-value',
+              label: 'Cashier / Register',
+              value: 'Reg 03 (Cashier: Daniel)',
+            },
+            {
+              type: 'table',
+              title: 'Purchased Items (Review Required)',
+              headers: ['SKU / Item', 'Qty', 'Unit Price', 'Total'],
+              rows: [
+                ['Galvanized Conduit 3/4in (10ft)', '4', '$14.25', '$57.00'],
+                ['Industrial Conduit Clamps (Pack)', '2', '$8.50', '$17.00'],
+                ['Heavy Duty Wire Stripper', '1', '$22.95', '$22.95'],
+                ['Estimated Subtotal', '', '', '$96.95'],
+                ['State Sales Tax (8.25%)', '', '', '$8.00'],
+                ['Total Tendered (VISA **** 4812)', '', '', '$104.95'],
+              ],
+              alignments: ['left', 'center', 'right', 'right'],
+              columnTypes: ['string', 'number', 'currency', 'currency'],
+              hasHeader: true,
+              hasTotalRow: true,
+            },
+          ],
+        },
+      ],
+      spreadsheets: [
+        {
+          sheetName: 'Itemized Receipt Breakdown',
+          headers: ['SKU / Item', 'Qty', 'Unit Price', 'Total'],
+          rows: [
+            ['Galvanized Conduit 3/4in (10ft)', '4', '$14.25', '$57.00'],
+            ['Industrial Conduit Clamps (Pack)', '2', '$8.50', '$17.00'],
+            ['Heavy Duty Wire Stripper', '1', '$22.95', '$22.95'],
+            ['Estimated Subtotal', '', '', '$96.95'],
+            ['State Sales Tax (8.25%)', '', '', '$8.00'],
+            ['Total Tendered (VISA **** 4812)', '', '', '$104.95'],
+          ],
+        },
+      ],
+    },
+  },
 ];

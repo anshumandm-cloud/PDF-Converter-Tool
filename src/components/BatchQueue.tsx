@@ -15,6 +15,9 @@ import {
   RefreshCw,
   Languages,
   Globe2,
+  UploadCloud,
+  AlertTriangle,
+  ShieldCheck,
 } from 'lucide-react';
 import { BatchItem } from '../types/document';
 import { TranslateItemModal } from './TranslateItemModal';
@@ -64,13 +67,19 @@ export const BatchQueue: React.FC<BatchQueueProps> = ({
   const totalTablesExtracted = items.reduce((sum, item) => {
     return sum + (item.structuredData?.spreadsheets?.length || 0);
   }, 0);
+  const lowConfidenceCount = items.filter(
+    (i) =>
+      i.status === 'completed' &&
+      i.structuredData?.confidenceScore !== undefined &&
+      i.structuredData.confidenceScore < 0.75
+  ).length;
 
   return (
     <div className="mt-8 bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden">
       {/* Batch Header & Summary Bar */}
       <div className="p-5 sm:p-6 bg-slate-50/80 border-b border-slate-200/90 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <h3 className="text-base font-bold text-slate-900">
               Attached Documents Queue ({items.length})
             </h3>
@@ -82,6 +91,12 @@ export const BatchQueue: React.FC<BatchQueueProps> = ({
             {totalTablesExtracted > 0 && (
               <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-emerald-100 text-emerald-800">
                 {totalTablesExtracted} Tables Extracted
+              </span>
+            )}
+            {lowConfidenceCount > 0 && (
+              <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                <span>{lowConfidenceCount} Review Recommended</span>
               </span>
             )}
           </div>
@@ -197,15 +212,35 @@ export const BatchQueue: React.FC<BatchQueueProps> = ({
             item.status === 'generating_files' ||
             item.status === 'syncing_cloud';
 
+          const isCompleted = item.status === 'completed';
+          const confidenceScore = item.structuredData?.confidenceScore;
+          const isLowConfidence = isCompleted && confidenceScore !== undefined && confidenceScore < 0.75;
+          const isModerateConfidence = isCompleted && confidenceScore !== undefined && confidenceScore >= 0.75 && confidenceScore < 0.90;
+          const isHighConfidence = isCompleted && confidenceScore !== undefined && confidenceScore >= 0.90;
+
           return (
             <div
               key={item.id}
-              className="p-4 sm:p-5 hover:bg-slate-50/60 transition flex flex-col md:flex-row md:items-center justify-between gap-4"
+              className={`p-4 sm:p-5 transition flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+                isLowConfidence
+                  ? 'bg-amber-50/40 border-l-4 border-l-amber-500 hover:bg-amber-50/60'
+                  : 'hover:bg-slate-50/60'
+              }`}
             >
               {/* File Info & Status */}
               <div className="flex items-start gap-3 flex-1 min-w-0">
-                <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center shrink-0 mt-0.5">
-                  <FileText className="w-5 h-5 text-slate-500" />
+                <div
+                  className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${
+                    isLowConfidence
+                      ? 'bg-amber-100 text-amber-700 border border-amber-200'
+                      : 'bg-slate-100 text-slate-600'
+                  }`}
+                >
+                  {isLowConfidence ? (
+                    <AlertTriangle className="w-5 h-5 text-amber-600" />
+                  ) : (
+                    <FileText className="w-5 h-5 text-slate-500" />
+                  )}
                 </div>
 
                 <div className="min-w-0 flex-1">
@@ -229,6 +264,20 @@ export const BatchQueue: React.FC<BatchQueueProps> = ({
 
                   {/* Status & Progress Bar */}
                   <div className="mt-1.5 flex items-center gap-2">
+                    {item.status === 'uploading' && (
+                      <div className="flex items-center gap-2 text-xs text-blue-700 font-semibold">
+                        <UploadCloud className="w-3.5 h-3.5 animate-pulse text-blue-600" />
+                        <span>
+                          Uploading: {formatBytes(item.bytesUploaded || Math.round(((item.uploadProgress || 0) / 100) * item.size))} / {formatBytes(item.size)} ({item.uploadProgress || 0}%)
+                        </span>
+                        {item.uploadSpeed && (
+                          <span className="text-slate-500 font-normal">
+                            @ {item.uploadSpeed}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
                     {item.status === 'queued' && (
                       <span className="text-xs text-slate-500 flex items-center gap-1">
                         <span className="w-2 h-2 rounded-full bg-slate-300" />
@@ -244,16 +293,35 @@ export const BatchQueue: React.FC<BatchQueueProps> = ({
                     )}
 
                     {item.status === 'completed' && (
-                      <div className="flex items-center gap-2 text-xs">
+                      <div className="flex items-center gap-2 text-xs flex-wrap">
                         <span className="flex items-center gap-1 text-emerald-700 font-semibold">
                           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                           Converted Successfully
                         </span>
-                        {item.structuredData?.confidenceScore && (
-                          <span className="text-slate-400 font-normal">
-                            ({Math.round(item.structuredData.confidenceScore * 100)}% OCR confidence)
+
+                        {/* Color-Coded OCR Confidence Indicator */}
+                        {confidenceScore !== undefined && (
+                          <span
+                            className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
+                              isLowConfidence
+                                ? 'bg-amber-100 text-amber-900 border-amber-300 font-bold'
+                                : isModerateConfidence
+                                ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                            }`}
+                            title={`OCR recognition confidence: ${Math.round(confidenceScore * 100)}%`}
+                          >
+                            {isLowConfidence ? (
+                              <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0" />
+                            ) : isModerateConfidence ? (
+                              <AlertCircle className="w-3 h-3 text-amber-500 shrink-0" />
+                            ) : (
+                              <ShieldCheck className="w-3 h-3 text-emerald-600 shrink-0" />
+                            )}
+                            <span>{Math.round(confidenceScore * 100)}% Confidence</span>
                           </span>
                         )}
+
                         {item.structuredData?.spreadsheets?.length ? (
                           <span className="text-indigo-600 font-medium">
                             • {item.structuredData.spreadsheets.length} tables found
@@ -270,12 +338,54 @@ export const BatchQueue: React.FC<BatchQueueProps> = ({
                     )}
                   </div>
 
+                  {/* Visual Warning Banner for Low OCR Confidence */}
+                  {isLowConfidence && (
+                    <div className="mt-3 p-3.5 bg-amber-50/90 border border-amber-300 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-900 shadow-2xs">
+                      <div className="flex items-start sm:items-center gap-2.5">
+                        <div className="p-1.5 rounded-lg bg-amber-200/70 text-amber-900 shrink-0 mt-0.5 sm:mt-0">
+                          <AlertTriangle className="w-4 h-4 text-amber-700" />
+                        </div>
+                        <div>
+                          <div className="font-bold text-amber-950 flex items-center gap-1.5 flex-wrap">
+                            <span>Low OCR Confidence ({Math.round(confidenceScore * 100)}%)</span>
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-200 text-amber-900 font-bold uppercase tracking-wider">
+                              Manual Review Advised
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-amber-800/90 mt-0.5 leading-relaxed">
+                            Some faint text, blurred handwriting, or complex tabular borders may contain recognition inaccuracies. Please review and adjust in the Document Studio before final export.
+                          </p>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => onInspectItem(item)}
+                        className="inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white shadow-xs transition shrink-0 active:scale-98 cursor-pointer"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                        <span>Review in Studio</span>
+                      </button>
+                    </div>
+                  )}
+
                   {/* Progress Line */}
-                  {isBusy && (
+                  {(isBusy || item.status === 'uploading') && (
                     <div className="w-full max-w-md bg-slate-100 rounded-full h-1.5 mt-2 overflow-hidden">
                       <div
-                        className="bg-blue-600 h-1.5 rounded-full transition-all duration-300"
-                        style={{ width: `${Math.max(item.progress, 15)}%` }}
+                        className={`h-1.5 rounded-full transition-all duration-300 ${
+                          item.status === 'uploading'
+                            ? 'bg-blue-600'
+                            : 'bg-gradient-to-r from-blue-600 via-indigo-600 to-emerald-600'
+                        }`}
+                        style={{
+                          width: `${Math.max(
+                            item.status === 'uploading'
+                              ? item.uploadProgress || 10
+                              : item.progress,
+                            10
+                          )}%`,
+                        }}
                       />
                     </div>
                   )}
@@ -311,6 +421,15 @@ export const BatchQueue: React.FC<BatchQueueProps> = ({
 
               {/* Actions Toolbar */}
               <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
+                {item.status === 'uploading' && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                      <UploadCloud className="w-3.5 h-3.5 animate-pulse text-blue-600" />
+                      <span>Uploading {item.uploadProgress || 0}%</span>
+                    </span>
+                  </div>
+                )}
+
                 {item.status === 'queued' && (
                   <div className="flex items-center gap-1.5">
                     {/* Command 1: Convert (Original) */}
@@ -341,11 +460,23 @@ export const BatchQueue: React.FC<BatchQueueProps> = ({
                   <>
                     <button
                       onClick={() => onInspectItem(item)}
-                      title="Inspect & Edit in Studio"
-                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-800 transition"
+                      title={
+                        isLowConfidence
+                          ? 'Low OCR confidence - Review in Studio'
+                          : 'Inspect & Edit in Studio'
+                      }
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                        isLowConfidence
+                          ? 'bg-amber-600 hover:bg-amber-700 text-white font-bold shadow-xs'
+                          : 'bg-slate-100 hover:bg-slate-200 text-slate-800'
+                      }`}
                     >
-                      <Edit3 className="w-3.5 h-3.5 text-blue-600" />
-                      <span>Inspect & Edit</span>
+                      {isLowConfidence ? (
+                        <AlertTriangle className="w-3.5 h-3.5 text-white" />
+                      ) : (
+                        <Edit3 className="w-3.5 h-3.5 text-blue-600" />
+                      )}
+                      <span>{isLowConfidence ? 'Review in Studio' : 'Inspect & Edit'}</span>
                     </button>
 
                     {/* Distinct command to translate already converted document */}
