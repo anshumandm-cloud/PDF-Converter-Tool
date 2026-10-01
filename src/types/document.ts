@@ -75,6 +75,7 @@ export interface StructuredDocument {
   confidenceScore: number; // 0.0 to 1.0
   ocrSummary: string;
   detectedLanguage?: string;
+  translatedTo?: string;
   pages: PageStructure[];
   spreadsheets: SheetStructure[];
 }
@@ -82,6 +83,7 @@ export interface StructuredDocument {
 export type ProcessingStatus =
   | 'queued'
   | 'reading_ocr'
+  | 'translating'
   | 'reconstructing_layout'
   | 'generating_files'
   | 'syncing_cloud'
@@ -96,6 +98,8 @@ export interface BatchItem {
   base64Data?: string;
   previewUrl?: string; // object URL or data URL
   targetFormat: TargetFormat;
+  targetLanguage?: string;
+  detectedLanguage?: string;
   status: ProcessingStatus;
   progress: number; // 0 - 100
   statusMessage?: string;
@@ -121,6 +125,8 @@ export interface ConversionOptions {
   autoSyncToDrive: boolean;
   headerShadingColor: string; // e.g. "#1E3A8A"
   driveFolderName: string;
+  targetLanguage: string; // 'none' or language name
+  sourceLanguage: string; // 'auto' or language name
 }
 
 export interface DriveFileItem {
@@ -139,6 +145,8 @@ export interface HistoryRecord {
   fileName: string;
   fileSize: number;
   targetFormat: TargetFormat;
+  sourceLanguage?: string;
+  targetLanguage?: string;
   status: 'completed' | 'failed';
   confidenceScore?: number;
   durationMs?: number;

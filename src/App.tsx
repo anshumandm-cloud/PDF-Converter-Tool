@@ -67,6 +67,8 @@ export default function App() {
     autoSyncToDrive: false,
     headerShadingColor: '#1E3A8A',
     driveFolderName: 'OmniDoc Conversions',
+    targetLanguage: 'none',
+    sourceLanguage: 'auto',
   });
 
   // Initialize Firebase Auth listener
@@ -200,6 +202,7 @@ export default function App() {
         });
 
         let structuredData = item.structuredData;
+        const isTranslating = options.targetLanguage && options.targetLanguage !== 'none' && options.targetLanguage !== 'Original (No Translation)';
 
         // If not already provided (e.g. not a pre-parsed sample), call server OCR endpoint
         if (!structuredData && item.base64Data) {
@@ -210,6 +213,8 @@ export default function App() {
               fileBase64: item.base64Data,
               fileName: item.name,
               targetFormat: item.targetFormat,
+              targetLanguage: isTranslating ? options.targetLanguage : undefined,
+              sourceLanguage: options.sourceLanguage !== 'auto' ? options.sourceLanguage : undefined,
             }),
           });
 
@@ -220,6 +225,30 @@ export default function App() {
 
           const data = await res.json();
           structuredData = data.document;
+        } else if (structuredData && isTranslating && structuredData.translatedTo !== options.targetLanguage) {
+          // If sample or pre-parsed doc, translate it on demand
+          updateItem({
+            status: 'translating',
+            progress: 40,
+            statusMessage: `Translating document into ${options.targetLanguage}...`,
+          });
+
+          const transRes = await fetch('/api/document/translate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              document: structuredData,
+              targetLanguage: options.targetLanguage,
+              sourceLanguage: options.sourceLanguage !== 'auto' ? options.sourceLanguage : undefined,
+            }),
+          });
+
+          if (transRes.ok) {
+            const transData = await transRes.json();
+            if (transData.document) {
+              structuredData = transData.document;
+            }
+          }
         }
 
         if (!structuredData) {
@@ -316,6 +345,8 @@ export default function App() {
           fileName: item.name,
           fileSize: item.size,
           targetFormat: item.targetFormat,
+          sourceLanguage: options.sourceLanguage !== 'auto' ? options.sourceLanguage : undefined,
+          targetLanguage: isTranslating ? options.targetLanguage : undefined,
           status: 'completed',
           confidenceScore: structuredData.confidenceScore || 0.98,
           durationMs: Date.now() - startTime,

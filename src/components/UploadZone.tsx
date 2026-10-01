@@ -8,9 +8,12 @@ import {
   Sparkles,
   SlidersHorizontal,
   Check,
+  Languages,
+  Globe2,
 } from 'lucide-react';
 import { TargetFormat, ConversionOptions } from '../types/document';
 import { SAMPLE_DOCUMENTS, SampleDoc } from '../services/sampleDocuments';
+import { SUPPORTED_LANGUAGES, SOURCE_LANGUAGES } from '../services/languages';
 
 interface UploadZoneProps {
   onFilesSelected: (files: File[], format: TargetFormat) => void;
@@ -122,6 +125,63 @@ export const UploadZone: React.FC<UploadZoneProps> = ({
           >
             <SlidersHorizontal className="w-4 h-4" />
           </button>
+        </div>
+      </div>
+
+      {/* Document Language Translation Bar */}
+      <div className="mt-4 p-3.5 bg-indigo-50/70 rounded-xl border border-indigo-100 flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0">
+            <Languages className="w-4 h-4" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-xs text-indigo-950">
+                Document Translation Engine
+              </span>
+              {options.targetLanguage !== 'none' && options.targetLanguage !== 'Original (No Translation)' && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
+                  <Globe2 className="w-3 h-3 text-emerald-600" />
+                  Translating to {options.targetLanguage}
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-indigo-800/80 mt-0.5">
+              Translate text, headings, and table cells into your chosen language while preserving styles &amp; numbers.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+          <div className="flex items-center gap-1.5 text-xs">
+            <span className="text-slate-500 font-medium text-[11px]">From:</span>
+            <select
+              value={options.sourceLanguage}
+              onChange={(e) => setOptions((prev) => ({ ...prev, sourceLanguage: e.target.value }))}
+              className="px-2.5 py-1 text-xs bg-white border border-indigo-200 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500 shadow-2xs"
+            >
+              {SOURCE_LANGUAGES.map((l) => (
+                <option key={l.code} value={l.name}>
+                  {l.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-center gap-1.5 text-xs">
+            <span className="text-slate-500 font-medium text-[11px]">To:</span>
+            <select
+              value={options.targetLanguage}
+              onChange={(e) => setOptions((prev) => ({ ...prev, targetLanguage: e.target.value }))}
+              className="px-2.5 py-1 text-xs bg-white font-semibold border border-indigo-200 rounded-lg text-indigo-900 focus:outline-none focus:ring-1 focus:ring-indigo-500 shadow-2xs"
+            >
+              {SUPPORTED_LANGUAGES.map((l) => (
+                <option key={l.code} value={l.code === 'none' ? 'none' : l.name}>
+                  {l.name} {l.nativeName && l.code !== 'none' ? `(${l.nativeName})` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 

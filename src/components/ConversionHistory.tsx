@@ -15,6 +15,7 @@ import {
   Sparkles,
   ArrowUpDown,
   FileJson,
+  Globe2,
 } from 'lucide-react';
 import { HistoryRecord } from '../types/document';
 
@@ -265,9 +266,17 @@ export const ConversionHistory: React.FC<ConversionHistoryProps> = ({
                           <p className="font-bold text-slate-900 truncate" title={rec.fileName}>
                             {rec.fileName}
                           </p>
-                          <p className="text-[11px] text-slate-400">
-                            {formatBytes(rec.fileSize)}
-                          </p>
+                          <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                            <span className="text-[11px] text-slate-400">
+                              {formatBytes(rec.fileSize)}
+                            </span>
+                            {rec.targetLanguage && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-700 bg-indigo-50 px-1.5 py-0.2 rounded border border-indigo-100">
+                                <Globe2 className="w-2.5 h-2.5 text-indigo-600" />
+                                <span>{rec.targetLanguage}</span>
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </td>

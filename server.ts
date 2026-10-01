@@ -52,6 +52,17 @@ async function callGeminiWithRetry<T>(fn: () => Promise<T>, maxRetries = 2, dela
   throw lastErr;
 }
 
+function cleanErrorMessage(err: any): string {
+  const str = String(err?.message || err);
+  if (str.includes('503') || str.includes('high demand') || str.includes('UNAVAILABLE')) {
+    return 'The AI model is currently experiencing temporary high traffic. Please retry in a few moments.';
+  }
+  if (str.includes('429') || str.includes('RESOURCE_EXHAUSTED')) {
+    return 'Rate limit reached. Please wait a moment before trying again.';
+  }
+  return err?.message || 'An error occurred during document processing.';
+}
+
 // Health check endpoint
 app.get('/api/health', (req: Request, res: Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -60,7 +71,7 @@ app.get('/api/health', (req: Request, res: Response) => {
 // Document OCR and Structure Extraction Endpoint
 app.post('/api/ocr/convert', async (req: Request, res: Response) => {
   try {
-    const { fileBase64, fileName, mimeType, targetFormat } = req.body;
+    const { fileBase64, fileName, mimeType, targetFormat, targetLanguage, sourceLanguage } = req.body;
 
     if (!fileBase64) {
       return res.status(400).json({ error: 'fileBase64 data is required.' });
@@ -69,6 +80,8 @@ app.post('/api/ocr/convert', async (req: Request, res: Response) => {
     // Clean base64 string if data URI prefix is present
     const cleanBase64 = fileBase64.replace(/^data:[^;]+;base64,/, '');
     const documentMime = mimeType || 'application/pdf';
+
+    const isTranslating = targetLanguage && targetLanguage !== 'none' && targetLanguage !== 'Original (No Translation)';
 
     const promptText = `
 Please perform a high-precision OCR scan and layout analysis of this document.
@@ -79,6 +92,7 @@ Extract all structural contents into the following JSON format:
   "pageCount": 1,
   "confidenceScore": 0.98,
   "detectedLanguage": "English",
+  "translatedTo": "${isTranslating ? targetLanguage : ''}",
   "ocrSummary": "Summary of the document layout and tables detected",
   "pages": [
     {
@@ -129,6 +143,12 @@ Formatting & Table rules:
 3. For headings, classify level (1 for main title, 2 for section, 3 for sub-section).
 4. Preserve bold/italic styling in paragraphs so the generated Word document looks identical to the original PDF.
 5. Return ONLY valid JSON matching this schema.
+
+${isTranslating ? `LANGUAGE TRANSLATION REQUIREMENT:
+- Source Document Language: ${sourceLanguage || 'Auto-detect'}
+- Target Output Language: ${targetLanguage}
+- You MUST translate all titles, headings, paragraph text runs, list items, key-value labels, and table headers/cells into ${targetLanguage}.
+- CRITICAL: Maintain ALL numeric figures, currencies, dates, formulas, and math intact. Do not change values.` : ''}
 `;
 
     const response = await callGeminiWithRetry(() =>
@@ -196,8 +216,65 @@ Formatting & Table rules:
   } catch (error: any) {
     console.error('OCR processing error:', error);
     return res.status(500).json({
-      error: error.message || 'An error occurred during OCR conversion.',
+      error: cleanErrorMessage(error),
     });
+  }
+});
+
+// On-Demand Document Translation Endpoint
+app.post('/api/document/translate', async (req: Request, res: Response) => {
+  try {
+    const { document, targetLanguage, sourceLanguage } = req.body;
+
+    if (!document || !targetLanguage || targetLanguage === 'none') {
+      return res.status(400).json({ error: 'Valid document and targetLanguage are required.' });
+    }
+
+    const promptText = `
+You are an expert technical and document translator.
+Translate the following structured document into ${targetLanguage} (Source language: ${sourceLanguage || 'Auto-detect'}).
+
+INPUT DOCUMENT JSON:
+${JSON.stringify(document, null, 2)}
+
+TRANSLATION RULES:
+1. Translate all headings, text runs in paragraphs, list items, key-value labels/values, and table headers/cells into ${targetLanguage}.
+2. PRESERVE EXACT JSON SCHEMA AND STRUCTURE. Do NOT add or remove pages or elements.
+3. PRESERVE ALL NUMERICAL DATA, CURRENCIES, DATES, AND MEASUREMENTS.
+4. Set "translatedTo": "${targetLanguage}" in the root object.
+5. Return ONLY the translated JSON document matching the exact schema.
+`;
+
+    const response = await callGeminiWithRetry(() =>
+      ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: [{ text: promptText }],
+        config: {
+          responseMimeType: 'application/json',
+          temperature: 0.2,
+          systemInstruction:
+            'You are an expert document translation engine. You preserve layout, typography, table cells, and JSON schema while accurately translating human language.',
+        },
+      })
+    );
+
+    const translatedText = response.text;
+    if (!translatedText) {
+      throw new Error('Empty response from translation model.');
+    }
+
+    let translatedDoc;
+    try {
+      translatedDoc = JSON.parse(translatedText.trim());
+    } catch (parseErr) {
+      console.error('Failed to parse translation as JSON:', translatedText);
+      throw new Error('Translation response was not valid JSON.');
+    }
+
+    return res.json({ success: true, document: translatedDoc });
+  } catch (error: any) {
+    console.error('Document translation error:', error);
+    return res.status(500).json({ error: cleanErrorMessage(error) });
   }
 });
 
@@ -254,7 +331,7 @@ Be helpful, concise, well-structured, and use clean markdown with bullet points 
   } catch (error: any) {
     console.error('Chat endpoint error:', error);
     return res.status(500).json({
-      error: error.message || 'Error occurred while contacting AI Document Assistant.',
+      error: cleanErrorMessage(error),
     });
   }
 });

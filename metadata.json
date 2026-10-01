@@ -1,7 +1,8 @@
 {
   "name": "OmniDoc OCR & Converter",
-  "description": "High-accuracy AI OCR PDF conversion tool to editable Word and Excel documents with batch processing and Google Drive cloud sync.",
+  "description": "High-accuracy AI OCR PDF conversion tool to editable Word and Excel documents with batch processing and Google Drive cloud sync.\n\nDeveloped by ADM",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }
-

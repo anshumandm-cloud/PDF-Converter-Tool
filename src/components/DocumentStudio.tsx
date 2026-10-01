@@ -13,8 +13,11 @@ import {
   Sliders,
   Maximize2,
   RefreshCw,
+  Languages,
+  Globe2,
 } from 'lucide-react';
 import { BatchItem, StructuredDocument } from '../types/document';
+import { SUPPORTED_LANGUAGES } from '../services/languages';
 
 interface DocumentStudioProps {
   item: BatchItem | null;
@@ -51,6 +54,9 @@ export const DocumentStudio: React.FC<DocumentStudioProps> = ({
   const [activeSheetIndex, setActiveSheetIndex] = useState<number>(0);
   const [docData, setDocData] = useState<StructuredDocument>(item.structuredData);
   const [isSaved, setIsSaved] = useState(true);
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [showTranslateMenu, setShowTranslateMenu] = useState(false);
+  const [translationError, setTranslationError] = useState<string | null>(null);
 
   const handleTitleChange = (newTitle: string) => {
     setDocData((prev) => ({ ...prev, documentTitle: newTitle }));
@@ -77,6 +83,40 @@ export const DocumentStudio: React.FC<DocumentStudioProps> = ({
     setIsSaved(true);
   };
 
+  const handleTranslateDocument = async (targetLang: string) => {
+    if (!targetLang || targetLang === 'none') return;
+    setIsTranslating(true);
+    setTranslationError(null);
+    setShowTranslateMenu(false);
+
+    try {
+      const res = await fetch('/api/document/translate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          document: docData,
+          targetLanguage: targetLang,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Translation failed (${res.status})`);
+      }
+
+      const data = await res.json();
+      if (data.document) {
+        setDocData(data.document);
+        onUpdateDocumentData(item.id, data.document);
+      }
+    } catch (err: any) {
+      console.error('Translation error:', err);
+      setTranslationError(err.message || 'Failed to translate document.');
+    } finally {
+      setIsTranslating(false);
+    }
+  };
+
   const sheets = docData.spreadsheets || [];
   const currentSheet = sheets[activeSheetIndex] || sheets[0];
 
@@ -96,6 +136,12 @@ export const DocumentStudio: React.FC<DocumentStudioProps> = ({
               <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-400/30">
                 {Math.round((docData.confidenceScore || 0.98) * 100)}% OCR Precision
               </span>
+              {docData.translatedTo && (
+                <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 flex items-center gap-1">
+                  <Globe2 className="w-3 h-3 text-emerald-400" />
+                  Translated to {docData.translatedTo}
+                </span>
+              )}
             </div>
             <p className="text-xs text-slate-400 mt-0.5">
               Side-by-side visual layout inspection, cell editing, and Word/Excel preview.
@@ -129,6 +175,46 @@ export const DocumentStudio: React.FC<DocumentStudioProps> = ({
               <FileSpreadsheet className="w-3.5 h-3.5" />
               <span>Excel Grid ({sheets.length} Sheets)</span>
             </button>
+          </div>
+
+          {/* On-Demand Document Translation Dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setShowTranslateMenu(!showTranslateMenu)}
+              disabled={isTranslating}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition shadow-xs disabled:opacity-50"
+              title="Translate this document to another language"
+            >
+              {isTranslating ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Translating...</span>
+                </>
+              ) : (
+                <>
+                  <Languages className="w-3.5 h-3.5" />
+                  <span>Translate</span>
+                </>
+              )}
+            </button>
+
+            {showTranslateMenu && (
+              <div className="absolute right-0 mt-2 w-56 bg-slate-900 border border-slate-700 rounded-xl shadow-xl p-2 z-50 max-h-72 overflow-y-auto animate-in fade-in duration-150">
+                <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-800 mb-1">
+                  Translate Document To:
+                </div>
+                {SUPPORTED_LANGUAGES.filter((l) => l.code !== 'none').map((lang) => (
+                  <button
+                    key={lang.code}
+                    onClick={() => handleTranslateDocument(lang.name)}
+                    className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs text-slate-200 hover:bg-slate-800 hover:text-white transition flex items-center justify-between"
+                  >
+                    <span>{lang.name}</span>
+                    <span className="text-[10px] text-slate-400">{lang.nativeName}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           {!isSaved && (
