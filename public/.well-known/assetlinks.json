@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.omnidoc.ocr",
+      "sha256_cert_fingerprints": [
+        "14:6D:E9:7D:0F:52:AB:F5:4B:32:B1:A7:D5:4B:92:DF:D3:52:1D:64:1B:60:DF:99:6D:4E:99:48:8D:12:12:12"
+      ]
+    }
+  }
+]

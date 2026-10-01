@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1E3A8A"/>
+      <stop offset="50%" stop-color="#2563EB"/>
+      <stop offset="100%" stop-color="#0284C7"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38BDF8"/>
+      <stop offset="100%" stop-color="#60A5FA"/>
+    </linearGradient>
+  </defs>
+  <!-- Background Rounded Squircle -->
+  <rect width="512" height="512" rx="120" fill="url(#bg)"/>
+  
+  <!-- Document Sheet -->
+  <path d="M140 100 H300 L380 180 V400 C380 411.046 371.046 420 360 420 H140 C128.954 420 120 411.046 120 400 V120 C120 108.954 128.954 100 140 100 Z" fill="#FFFFFF" fill-opacity="0.95"/>
+  <path d="M300 100 V180 H380 Z" fill="#E2E8F0"/>
+  
+  <!-- Optical Scan Bar -->
+  <rect x="100" y="240" width="312" height="12" rx="6" fill="#F59E0B" filter="drop-shadow(0 2px 8px rgba(245, 158, 11, 0.6))"/>
+  
+  <!-- Document Lines -->
+  <rect x="160" y="200" width="110" height="16" rx="4" fill="#3B82F6"/>
+  <rect x="160" y="280" width="190" height="12" rx="4" fill="#94A3B8"/>
+  <rect x="160" y="310" width="160" height="12" rx="4" fill="#94A3B8"/>
+  <rect x="160" y="340" width="180" height="12" rx="4" fill="#94A3B8"/>
+
+  <!-- Excel/Word Badges -->
+  <circle cx="370" cy="370" r="45" fill="#10B981" stroke="#FFFFFF" stroke-width="6"/>
+  <text x="370" y="382" font-family="system-ui, sans-serif" font-weight="900" font-size="34" fill="#FFFFFF" text-anchor="middle">X</text>
+  
+  <circle cx="140" cy="370" r="45" fill="#2563EB" stroke="#FFFFFF" stroke-width="6"/>
+  <text x="140" y="382" font-family="system-ui, sans-serif" font-weight="900" font-size="34" fill="#FFFFFF" text-anchor="middle">W</text>
+</svg>
