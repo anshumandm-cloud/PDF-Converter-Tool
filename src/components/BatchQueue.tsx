@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Play,
   Download,
@@ -13,13 +13,18 @@ import {
   Layers,
   Archive,
   RefreshCw,
+  Languages,
+  Globe2,
 } from 'lucide-react';
 import { BatchItem } from '../types/document';
+import { TranslateItemModal } from './TranslateItemModal';
 
 interface BatchQueueProps {
   items: BatchItem[];
   onStartProcessingAll: () => void;
+  onTranslateAll: (targetLanguage: string, sourceLanguage?: string) => void;
   onProcessSingleItem: (id: string) => void;
+  onTranslateSingleItem: (id: string, targetLanguage: string, sourceLanguage?: string) => void;
   onRemoveItem: (id: string) => void;
   onClearCompleted: () => void;
   onDownloadDocx: (item: BatchItem) => void;
@@ -30,12 +35,15 @@ interface BatchQueueProps {
   onInspectItem: (item: BatchItem) => void;
   isProcessingAny: boolean;
   hasDriveToken: boolean;
+  onOpenFilePicker?: (action: 'convert' | 'translate') => void;
 }
 
 export const BatchQueue: React.FC<BatchQueueProps> = ({
   items,
   onStartProcessingAll,
+  onTranslateAll,
   onProcessSingleItem,
+  onTranslateSingleItem,
   onRemoveItem,
   onClearCompleted,
   onDownloadDocx,
@@ -46,10 +54,10 @@ export const BatchQueue: React.FC<BatchQueueProps> = ({
   onInspectItem,
   isProcessingAny,
   hasDriveToken,
+  onOpenFilePicker,
 }) => {
-  if (items.length === 0) {
-    return null;
-  }
+  const [itemToTranslate, setItemToTranslate] = useState<BatchItem | null>(null);
+  const [isBatchTranslateOpen, setIsBatchTranslateOpen] = useState(false);
 
   const completedCount = items.filter((i) => i.status === 'completed').length;
   const queuedCount = items.filter((i) => i.status === 'queued').length;
@@ -64,11 +72,13 @@ export const BatchQueue: React.FC<BatchQueueProps> = ({
         <div>
           <div className="flex items-center gap-2">
             <h3 className="text-base font-bold text-slate-900">
-              Batch Conversion Queue ({items.length})
+              Attached Documents Queue ({items.length})
             </h3>
-            <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-blue-100 text-blue-800">
-              {completedCount} Completed
-            </span>
+            {completedCount > 0 && (
+              <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-blue-100 text-blue-800">
+                {completedCount} Completed
+              </span>
+            )}
             {totalTablesExtracted > 0 && (
               <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-emerald-100 text-emerald-800">
                 {totalTablesExtracted} Tables Extracted
@@ -76,22 +86,45 @@ export const BatchQueue: React.FC<BatchQueueProps> = ({
             )}
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            Process multiple documents in parallel, review side-by-side OCR reconstructions, and sync to Google Drive.
+            Execute separate commands to convert in original language or translate into any chosen target language.
           </p>
         </div>
 
-        {/* Global Batch Actions */}
+        {/* Global Batch Actions: Distinct Convert vs Translate Commands */}
         <div className="flex flex-wrap items-center gap-2">
-          {queuedCount > 0 && (
-            <button
-              onClick={onStartProcessingAll}
-              disabled={isProcessingAny}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-xs transition active:scale-98 disabled:opacity-50"
-            >
-              <Play className="w-3.5 h-3.5 fill-current" />
-              <span>Convert All ({queuedCount})</span>
-            </button>
-          )}
+          {/* Command 1: Convert All (Original Language) */}
+          <button
+            onClick={() => {
+              if (queuedCount > 0) {
+                onStartProcessingAll();
+              } else if (onOpenFilePicker) {
+                onOpenFilePicker('convert');
+              }
+            }}
+            disabled={isProcessingAny}
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition active:scale-98 disabled:opacity-50 cursor-pointer"
+            title="Convert attached documents preserving original language"
+          >
+            <Play className="w-3.5 h-3.5 fill-current" />
+            <span>Convert All {queuedCount > 0 ? `(${queuedCount})` : ''}</span>
+          </button>
+
+          {/* Command 2: Translate All (Chosen Target Language) */}
+          <button
+            onClick={() => {
+              if (queuedCount > 0) {
+                setIsBatchTranslateOpen(true);
+              } else if (onOpenFilePicker) {
+                onOpenFilePicker('translate');
+              }
+            }}
+            disabled={isProcessingAny}
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white shadow-xs transition active:scale-98 disabled:opacity-50 cursor-pointer"
+            title="Translate attached documents into a chosen language"
+          >
+            <Languages className="w-3.5 h-3.5" />
+            <span>Translate All {queuedCount > 0 ? `(${queuedCount})` : ''}</span>
+          </button>
 
           {completedCount > 0 && (
             <>
@@ -123,8 +156,40 @@ export const BatchQueue: React.FC<BatchQueueProps> = ({
         </div>
       </div>
 
-      {/* Item List */}
-      <div className="divide-y divide-slate-100">
+      {/* When Empty: Show clear call-to-action */}
+      {items.length === 0 ? (
+        <div className="p-8 sm:p-10 text-center bg-slate-50/40">
+          <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center mx-auto mb-3">
+            <Layers className="w-6 h-6" />
+          </div>
+          <h4 className="text-sm font-bold text-slate-800">
+            No Documents in Attached Queue
+          </h4>
+          <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+            Attach a PDF file above or click an action button below to select documents and start processing:
+          </p>
+          <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+            <button
+              type="button"
+              onClick={() => onOpenFilePicker?.('convert')}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition active:scale-98"
+            >
+              <Play className="w-3.5 h-3.5 fill-current" />
+              <span>Attach &amp; Convert</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onOpenFilePicker?.('translate')}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white shadow-xs transition active:scale-98"
+            >
+              <Languages className="w-3.5 h-3.5" />
+              <span>Attach &amp; Translate</span>
+            </button>
+          </div>
+        </div>
+      ) : (
+        /* Item List */
+        <div className="divide-y divide-slate-100">
         {items.map((item) => {
           const isBusy =
             item.status === 'reading_ocr' ||
@@ -154,6 +219,12 @@ export const BatchQueue: React.FC<BatchQueueProps> = ({
                     <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-100">
                       Target: {item.targetFormat.toUpperCase()}
                     </span>
+                    {item.targetLanguage && (
+                      <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1">
+                        <Globe2 className="w-2.5 h-2.5" />
+                        Target: {item.targetLanguage}
+                      </span>
+                    )}
                   </div>
 
                   {/* Status & Progress Bar */}
@@ -241,14 +312,29 @@ export const BatchQueue: React.FC<BatchQueueProps> = ({
               {/* Actions Toolbar */}
               <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
                 {item.status === 'queued' && (
-                  <button
-                    onClick={() => onProcessSingleItem(item.id)}
-                    disabled={isProcessingAny}
-                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100 transition disabled:opacity-50"
-                  >
-                    <Play className="w-3 h-3 fill-current" />
-                    <span>Convert</span>
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    {/* Command 1: Convert (Original) */}
+                    <button
+                      onClick={() => onProcessSingleItem(item.id)}
+                      disabled={isProcessingAny}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100 transition disabled:opacity-50"
+                      title="Convert attached document preserving original language"
+                    >
+                      <Play className="w-3 h-3 fill-current" />
+                      <span>Convert</span>
+                    </button>
+
+                    {/* Command 2: Translate */}
+                    <button
+                      onClick={() => setItemToTranslate(item)}
+                      disabled={isProcessingAny}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition disabled:opacity-50"
+                      title="Invoke translation for this attached document"
+                    >
+                      <Languages className="w-3 h-3 text-indigo-600" />
+                      <span>Translate</span>
+                    </button>
+                  </div>
                 )}
 
                 {item.status === 'completed' && (
@@ -260,6 +346,17 @@ export const BatchQueue: React.FC<BatchQueueProps> = ({
                     >
                       <Edit3 className="w-3.5 h-3.5 text-blue-600" />
                       <span>Inspect & Edit</span>
+                    </button>
+
+                    {/* Distinct command to translate already converted document */}
+                    <button
+                      onClick={() => setItemToTranslate(item)}
+                      disabled={isProcessingAny}
+                      title="Translate this converted document into another language"
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition disabled:opacity-50"
+                    >
+                      <Languages className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Translate</span>
                     </button>
 
                     {(item.targetFormat === 'word' || item.targetFormat === 'both') && (
@@ -311,6 +408,38 @@ export const BatchQueue: React.FC<BatchQueueProps> = ({
           );
         })}
       </div>
+      )}
+
+      {/* Modal for single item translation command */}
+      {itemToTranslate && (
+        <TranslateItemModal
+          isOpen={!!itemToTranslate}
+          onClose={() => setItemToTranslate(null)}
+          documentTitle={itemToTranslate.name}
+          initialTargetLanguage={itemToTranslate.targetLanguage || 'Spanish'}
+          onConfirmTranslate={(targetLanguage, sourceLanguage) => {
+            const id = itemToTranslate.id;
+            setItemToTranslate(null);
+            onTranslateSingleItem(id, targetLanguage, sourceLanguage);
+          }}
+          isProcessing={isProcessingAny}
+        />
+      )}
+
+      {/* Modal for batch queue translation command */}
+      {isBatchTranslateOpen && (
+        <TranslateItemModal
+          isOpen={isBatchTranslateOpen}
+          onClose={() => setIsBatchTranslateOpen(false)}
+          isBatch={true}
+          batchCount={queuedCount}
+          onConfirmTranslate={(targetLanguage, sourceLanguage) => {
+            setIsBatchTranslateOpen(false);
+            onTranslateAll(targetLanguage, sourceLanguage);
+          }}
+          isProcessing={isProcessingAny}
+        />
+      )}
     </div>
   );
 };

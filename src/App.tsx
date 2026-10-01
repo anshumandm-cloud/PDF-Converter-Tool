@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { User } from 'firebase/auth';
 import JSZip from 'jszip';
 import {
@@ -40,6 +40,14 @@ export default function App() {
   const [batchItems, setBatchItems] = useState<BatchItem[]>([]);
   const [activeStudioItem, setActiveStudioItem] = useState<BatchItem | null>(null);
   const [isProcessingAny, setIsProcessingAny] = useState<boolean>(false);
+
+  const hiddenFileInputRef = useRef<HTMLInputElement>(null);
+  const pendingQueueActionRef = useRef<'convert' | 'translate'>('convert');
+
+  const handleOpenFilePicker = (action: 'convert' | 'translate') => {
+    pendingQueueActionRef.current = action;
+    hiddenFileInputRef.current?.click();
+  };
 
   // Conversion History records (persisted in localStorage)
   const [historyRecords, setHistoryRecords] = useState<HistoryRecord[]>(() => {
@@ -123,7 +131,11 @@ export default function App() {
   };
 
   // Add uploaded local files to queue
-  const handleFilesSelected = async (files: File[], format: TargetFormat) => {
+  const handleFilesSelected = async (
+    files: File[],
+    format: TargetFormat,
+    autoAction?: 'convert' | 'translate'
+  ) => {
     const newItems: BatchItem[] = [];
 
     for (const file of files) {
@@ -142,6 +154,22 @@ export default function App() {
     }
 
     setBatchItems((prev) => [...prev, ...newItems]);
+
+    // If autoAction was triggered by clicking Convert or Translate before selecting files:
+    if (autoAction === 'convert') {
+      setTimeout(() => {
+        for (const item of newItems) {
+          processItem(item.id);
+        }
+      }, 100);
+    } else if (autoAction === 'translate') {
+      setTimeout(() => {
+        const lang = options.targetLanguage !== 'none' ? options.targetLanguage : 'Spanish';
+        for (const item of newItems) {
+          processItem(item.id, { targetLanguage: lang, sourceLanguage: options.sourceLanguage });
+        }
+      }, 100);
+    }
   };
 
   // Add sample document to queue
@@ -182,7 +210,10 @@ export default function App() {
 
   // Core conversion processor for single item
   const processItem = useCallback(
-    async (itemId: string) => {
+    async (
+      itemId: string,
+      translateConfig?: { targetLanguage: string; sourceLanguage?: string }
+    ) => {
       const item = batchItems.find((i) => i.id === itemId);
       if (!item) return;
 
@@ -195,17 +226,55 @@ export default function App() {
       };
 
       try {
-        updateItem({
-          status: 'reading_ocr',
-          progress: 25,
-          statusMessage: 'Scanning text & typography with Gemini Vision OCR...',
-        });
+        const isTranslating = Boolean(
+          translateConfig?.targetLanguage &&
+            translateConfig.targetLanguage !== 'none' &&
+            translateConfig.targetLanguage !== 'Original (No Translation)'
+        );
+
+        const targetLang = isTranslating ? translateConfig!.targetLanguage : undefined;
+        const sourceLang = isTranslating ? translateConfig?.sourceLanguage : undefined;
 
         let structuredData = item.structuredData;
-        const isTranslating = options.targetLanguage && options.targetLanguage !== 'none' && options.targetLanguage !== 'Original (No Translation)';
 
-        // If not already provided (e.g. not a pre-parsed sample), call server OCR endpoint
-        if (!structuredData && item.base64Data) {
+        // If the document is already converted and the user clicked "Translate", translate directly
+        if (structuredData && isTranslating) {
+          updateItem({
+            status: 'translating',
+            progress: 35,
+            statusMessage: `Translating document into ${targetLang}...`,
+            targetLanguage: targetLang,
+          });
+
+          const transRes = await fetch('/api/document/translate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              document: structuredData,
+              targetLanguage: targetLang,
+              sourceLanguage: sourceLang !== 'auto' ? sourceLang : undefined,
+            }),
+          });
+
+          if (!transRes.ok) {
+            const errData = await transRes.json().catch(() => ({}));
+            throw new Error(errData.error || `Translation Error (${transRes.status})`);
+          }
+
+          const transData = await transRes.json();
+          if (transData.document) {
+            structuredData = transData.document;
+          }
+        } else if (!structuredData && item.base64Data) {
+          updateItem({
+            status: isTranslating ? 'translating' : 'reading_ocr',
+            progress: 25,
+            statusMessage: isTranslating
+              ? `Scanning and translating into ${targetLang}...`
+              : 'Scanning text & typography with Gemini Vision OCR...',
+            targetLanguage: targetLang,
+          });
+
           const res = await fetch('/api/ocr/convert', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -213,8 +282,8 @@ export default function App() {
               fileBase64: item.base64Data,
               fileName: item.name,
               targetFormat: item.targetFormat,
-              targetLanguage: isTranslating ? options.targetLanguage : undefined,
-              sourceLanguage: options.sourceLanguage !== 'auto' ? options.sourceLanguage : undefined,
+              targetLanguage: targetLang,
+              sourceLanguage: sourceLang !== 'auto' ? sourceLang : undefined,
             }),
           });
 
@@ -225,30 +294,6 @@ export default function App() {
 
           const data = await res.json();
           structuredData = data.document;
-        } else if (structuredData && isTranslating && structuredData.translatedTo !== options.targetLanguage) {
-          // If sample or pre-parsed doc, translate it on demand
-          updateItem({
-            status: 'translating',
-            progress: 40,
-            statusMessage: `Translating document into ${options.targetLanguage}...`,
-          });
-
-          const transRes = await fetch('/api/document/translate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              document: structuredData,
-              targetLanguage: options.targetLanguage,
-              sourceLanguage: options.sourceLanguage !== 'auto' ? options.sourceLanguage : undefined,
-            }),
-          });
-
-          if (transRes.ok) {
-            const transData = await transRes.json();
-            if (transData.document) {
-              structuredData = transData.document;
-            }
-          }
         }
 
         if (!structuredData) {
@@ -330,12 +375,13 @@ export default function App() {
         updateItem({
           status: 'completed',
           progress: 100,
-          statusMessage: 'Converted successfully',
+          statusMessage: isTranslating ? `Translated to ${targetLang}` : 'Converted successfully',
           docxBlob,
           xlsxBlob,
           driveStatus,
           driveWordLink,
           driveExcelLink,
+          targetLanguage: targetLang,
         });
 
         // Record in history log
@@ -345,14 +391,16 @@ export default function App() {
           fileName: item.name,
           fileSize: item.size,
           targetFormat: item.targetFormat,
-          sourceLanguage: options.sourceLanguage !== 'auto' ? options.sourceLanguage : undefined,
-          targetLanguage: isTranslating ? options.targetLanguage : undefined,
+          sourceLanguage: sourceLang !== 'auto' ? sourceLang : undefined,
+          targetLanguage: targetLang,
           status: 'completed',
           confidenceScore: structuredData.confidenceScore || 0.98,
           durationMs: Date.now() - startTime,
           tableCount: structuredData.spreadsheets?.length || 0,
           pageCount: structuredData.pages?.length || 1,
-          ocrSummary: structuredData.ocrSummary || 'Successfully converted document',
+          ocrSummary:
+            structuredData.ocrSummary ||
+            (isTranslating ? `Translated to ${targetLang}` : 'Successfully converted document'),
           driveSynced: driveStatus === 'synced',
           driveWordLink,
           driveExcelLink,
@@ -364,8 +412,8 @@ export default function App() {
         console.error('Process item error:', err);
         updateItem({
           status: 'error',
-          error: err.message || 'Conversion failed',
-          statusMessage: 'Conversion failed',
+          error: err.message || 'Operation failed',
+          statusMessage: 'Operation failed',
         });
 
         const failedRecord: HistoryRecord = {
@@ -377,7 +425,7 @@ export default function App() {
           status: 'failed',
           tableCount: 0,
           pageCount: 1,
-          error: err.message || 'Conversion failed',
+          error: err.message || 'Operation failed',
           driveSynced: false,
         };
         setHistoryRecords((prev) => [failedRecord, ...prev]);
@@ -386,7 +434,25 @@ export default function App() {
     [batchItems, options]
   );
 
-  // Process all queued items sequentially
+  // Pure Convert handler for single item (preserves original language)
+  const handleProcessSingleItem = async (id: string) => {
+    setIsProcessingAny(true);
+    await processItem(id);
+    setIsProcessingAny(false);
+  };
+
+  // Pure Translate handler for single item (invokes translation)
+  const handleTranslateSingleItem = async (
+    id: string,
+    targetLanguage: string,
+    sourceLanguage?: string
+  ) => {
+    setIsProcessingAny(true);
+    await processItem(id, { targetLanguage, sourceLanguage });
+    setIsProcessingAny(false);
+  };
+
+  // Pure Convert All handler (preserves original language)
   const handleStartProcessingAll = async () => {
     setIsProcessingAny(true);
     const queued = batchItems.filter((i) => i.status === 'queued');
@@ -397,9 +463,17 @@ export default function App() {
     setIsProcessingAny(false);
   };
 
-  const handleProcessSingleItem = async (id: string) => {
+  // Pure Translate All handler (invokes translation)
+  const handleTranslateAll = async (
+    targetLanguage: string,
+    sourceLanguage?: string
+  ) => {
     setIsProcessingAny(true);
-    await processItem(id);
+    const queued = batchItems.filter((i) => i.status === 'queued');
+
+    for (const item of queued) {
+      await processItem(item.id, { targetLanguage, sourceLanguage });
+    }
     setIsProcessingAny(false);
   };
 
@@ -682,12 +756,33 @@ export default function App() {
               options={options}
               setOptions={setOptions}
               hasDriveToken={hasDriveToken}
+              onInvokeConvert={handleStartProcessingAll}
+              onInvokeTranslate={handleTranslateAll}
+              attachedCount={batchItems.length}
+              isProcessing={isProcessingAny}
+            />
+
+            <input
+              ref={hiddenFileInputRef}
+              type="file"
+              accept=".pdf,application/pdf"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                if (e.target.files && e.target.files.length > 0) {
+                  const files = Array.from(e.target.files);
+                  handleFilesSelected(files, 'both', pendingQueueActionRef.current);
+                  e.target.value = '';
+                }
+              }}
             />
 
             <BatchQueue
               items={batchItems}
               onStartProcessingAll={handleStartProcessingAll}
+              onTranslateAll={handleTranslateAll}
               onProcessSingleItem={handleProcessSingleItem}
+              onTranslateSingleItem={handleTranslateSingleItem}
               onRemoveItem={handleRemoveItem}
               onClearCompleted={handleClearCompleted}
               onDownloadDocx={handleDownloadDocx}
@@ -698,6 +793,7 @@ export default function App() {
               onInspectItem={handleInspectItem}
               isProcessingAny={isProcessingAny}
               hasDriveToken={hasDriveToken}
+              onOpenFilePicker={handleOpenFilePicker}
             />
           </div>
         )}

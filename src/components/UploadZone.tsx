@@ -10,18 +10,24 @@ import {
   Check,
   Languages,
   Globe2,
+  Play,
 } from 'lucide-react';
 import { TargetFormat, ConversionOptions } from '../types/document';
 import { SAMPLE_DOCUMENTS, SampleDoc } from '../services/sampleDocuments';
 import { SUPPORTED_LANGUAGES, SOURCE_LANGUAGES } from '../services/languages';
+import { TranslateItemModal } from './TranslateItemModal';
 
 interface UploadZoneProps {
-  onFilesSelected: (files: File[], format: TargetFormat) => void;
+  onFilesSelected: (files: File[], format: TargetFormat, autoAction?: 'convert' | 'translate') => void;
   onSampleSelected: (sample: SampleDoc, format: TargetFormat) => void;
   onOpenDrivePicker: () => void;
   options: ConversionOptions;
   setOptions: React.Dispatch<React.SetStateAction<ConversionOptions>>;
   hasDriveToken: boolean;
+  onInvokeConvert?: () => void;
+  onInvokeTranslate?: (targetLanguage: string, sourceLanguage?: string) => void;
+  attachedCount?: number;
+  isProcessing?: boolean;
 }
 
 export const UploadZone: React.FC<UploadZoneProps> = ({
@@ -31,11 +37,17 @@ export const UploadZone: React.FC<UploadZoneProps> = ({
   options,
   setOptions,
   hasDriveToken,
+  onInvokeConvert,
+  onInvokeTranslate,
+  attachedCount = 0,
+  isProcessing = false,
 }) => {
   const [targetFormat, setTargetFormat] = useState<TargetFormat>('both');
   const [isDragOver, setIsDragOver] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [isTranslateModalOpen, setIsTranslateModalOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pendingActionRef = useRef<'convert' | 'translate' | null>(null);
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -53,8 +65,28 @@ export const UploadZone: React.FC<UploadZoneProps> = ({
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const filesArray = Array.from(e.target.files);
-      onFilesSelected(filesArray, targetFormat);
+      const action = pendingActionRef.current;
+      pendingActionRef.current = null;
+      onFilesSelected(filesArray, targetFormat, action || undefined);
       e.target.value = ''; // Reset input
+    }
+  };
+
+  const handleConvertClick = () => {
+    if (attachedCount > 0 && onInvokeConvert) {
+      onInvokeConvert();
+    } else {
+      pendingActionRef.current = 'convert';
+      fileInputRef.current?.click();
+    }
+  };
+
+  const handleTranslateClick = () => {
+    if (attachedCount > 0) {
+      setIsTranslateModalOpen(true);
+    } else {
+      pendingActionRef.current = 'translate';
+      fileInputRef.current?.click();
     }
   };
 
@@ -182,6 +214,25 @@ export const UploadZone: React.FC<UploadZoneProps> = ({
               ))}
             </select>
           </div>
+
+          {onInvokeTranslate && attachedCount > 0 && (
+            <button
+              type="button"
+              onClick={() =>
+                onInvokeTranslate(
+                  options.targetLanguage !== 'none' && options.targetLanguage !== 'Original (No Translation)'
+                    ? options.targetLanguage
+                    : 'Spanish',
+                  options.sourceLanguage
+                )
+              }
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs transition active:scale-98"
+              title="Execute translation on attached documents"
+            >
+              <Languages className="w-3.5 h-3.5" />
+              <span>Translate Attached ({attachedCount})</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -219,6 +270,55 @@ export const UploadZone: React.FC<UploadZoneProps> = ({
           </label>
         </div>
       )}
+
+      {/* Primary Conversion & Translation Command Bar - Always Visible on Page */}
+      <div className="mt-5 p-4 sm:p-5 bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 rounded-2xl text-white shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+              Document Execution Commands
+            </span>
+            {attachedCount > 0 ? (
+              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-400/30">
+                {attachedCount} Document(s) Ready
+              </span>
+            ) : (
+              <span className="text-[11px] text-slate-400">
+                (Click to select or convert files)
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-slate-300 mt-1">
+            Choose whether to perform high-precision conversion in original language or invoke multilingual translation.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+          {/* Button 1: Convert Document */}
+          <button
+            type="button"
+            onClick={handleConvertClick}
+            disabled={isProcessing}
+            className="flex-1 md:flex-initial inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-900/30 transition active:scale-98 disabled:opacity-50 cursor-pointer"
+            title="Convert PDF preserving original language"
+          >
+            <Play className="w-4 h-4 fill-current text-white" />
+            <span>Convert Document</span>
+          </button>
+
+          {/* Button 2: Translate Document */}
+          <button
+            type="button"
+            onClick={handleTranslateClick}
+            disabled={isProcessing}
+            className="flex-1 md:flex-initial inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-xs font-bold bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-600 hover:to-violet-700 text-white shadow-md shadow-indigo-900/30 transition active:scale-98 disabled:opacity-50 cursor-pointer"
+            title="Translate document into chosen language"
+          >
+            <Languages className="w-4 h-4 text-white" />
+            <span>Translate Document</span>
+          </button>
+        </div>
+      </div>
 
       {/* Dropzone Area */}
       <div
@@ -318,6 +418,28 @@ export const UploadZone: React.FC<UploadZoneProps> = ({
           ))}
         </div>
       </div>
+
+      {/* Modal for Translate Document command */}
+      {isTranslateModalOpen && (
+        <TranslateItemModal
+          isOpen={isTranslateModalOpen}
+          onClose={() => setIsTranslateModalOpen(false)}
+          isBatch={attachedCount > 1}
+          batchCount={attachedCount}
+          initialTargetLanguage={
+            options.targetLanguage !== 'none' && options.targetLanguage !== 'Original (No Translation)'
+              ? options.targetLanguage
+              : 'Spanish'
+          }
+          onConfirmTranslate={(targetLanguage, sourceLanguage) => {
+            setIsTranslateModalOpen(false);
+            if (onInvokeTranslate) {
+              onInvokeTranslate(targetLanguage, sourceLanguage);
+            }
+          }}
+          isProcessing={isProcessing}
+        />
+      )}
     </div>
   );
 };
